@@ -257,9 +257,10 @@ function startBot(ioInstance) {
       '--disable-sync',
       '--metrics-recording-only',
       '--mute-audio',
-      '--disable-web-security'
+      '--disable-blink-features=AutomationControlled',
+      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     ],
-    timeout: 120000
+    timeout: 180000
   };
   if (chromePath) puppeteerOpts.executablePath = chromePath;
 

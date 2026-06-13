@@ -1,9 +1,6 @@
 FROM node:18-bullseye-slim
 
 RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-common \
-    chromium-sandbox \
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -23,8 +20,6 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV CHROME_PATH=/usr/bin/chromium
 ENV NODE_ENV=production
 
 WORKDIR /app

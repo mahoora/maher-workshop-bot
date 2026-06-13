@@ -234,9 +234,6 @@ function startBot(ioInstance) {
   if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
   const chromePaths = [
-    process.env.CHROME_PATH || '/usr/bin/chromium',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   ];

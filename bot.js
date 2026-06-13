@@ -300,13 +300,90 @@ function startBot(ioInstance) {
     updateState({ status: 'initializing' });
   });
 
+  // ════════════════════════════════════════════
+  // دالة مساعدة: إرسال رد نصي + صوتي معاً
+  // ════════════════════════════════════════════
+  async function sendTextAndAudio(to, text) {
+    try {
+      await client.sendMessage(to, text);
+    } catch (e) {
+      console.error('❌ فشل إرسال النص:', e.message);
+    }
+    try {
+      const tts = new gTTS(text, 'ar');
+      const audioFile = path.join(tempDir, `audio_${Date.now()}.mp3`);
+      await new Promise((resolve, reject) => {
+        tts.save(audioFile, (err) => { if (err) reject(err); else resolve(); });
+      });
+      if (fs.existsSync(audioFile)) {
+        const audioMedia = MessageMedia.fromFilePath(audioFile);
+        await client.sendMessage(to, audioMedia, { sendAudio: true });
+        try { fs.unlinkSync(audioFile); } catch {}
+      }
+    } catch (e) {
+      console.error('❌ gTTS فشل:', e.message);
+    }
+  }
+
   client.on('message', async (message) => {
     try {
     if (message.from.endsWith('@g.us')) return;
     const msgText = message.body.trim();
     const senderNumber = message.from.replace('@c.us', '').replace('@g.us', '');
-    if (!msgText) return;
     if (isBlocked(senderNumber)) return;
+
+    // ════════════════════════════════════════════
+    // 0️⃣ الوسائط المتعددة: صوت، صورة، فيديو
+    // ════════════════════════════════════════════
+    if (message.hasMedia) {
+      try {
+        const media = await message.downloadMedia();
+        if (media && media.mimetype) {
+          const mime = media.mimetype;
+
+          // 🎤 رسالة صوتية: تفريغ ← رد نصي + صوتي
+          if (mime.startsWith('audio/')) {
+            await client.sendMessage(message.from, '⏳ جاري تفريغ الصوت... ثواني');
+            const audioBuffer = Buffer.from(media.data, 'base64');
+            const transcription = await getWhisperTranscription(audioBuffer);
+            if (transcription && transcription.length > 2) {
+              console.log('🎤 تفريغ صوتي:', transcription);
+              let reply = directPriceMatch(transcription);
+              if (reply === 'GROUP_ASK') {
+                reply = 'هل أنت سباك؟';
+                userStates[message.from] = 'waiting_for_plumber_check';
+              }
+              if (!reply) reply = await generateBotReply(transcription);
+              if (reply) {
+                await sendTextAndAudio(message.from, reply);
+              }
+            } else {
+              await sendTextAndAudio(message.from, 'عذراً، لم أتمكن من سماع التسجيل بوضوح، يرجى إعادة الإرسال بجودة أفضل.');
+            }
+            return;
+          }
+
+          // 📸 صورة
+          if (mime.startsWith('image/')) {
+            await client.sendMessage(message.from, '📸 استلمت الصورة. للأسف ما أقدر أحلل الصور دلوقتي، ممكن تكتبلي تفاصيل طلبك بالكتابة?');
+            return;
+          }
+
+          // 🎬 فيديو
+          if (mime.startsWith('video/')) {
+            await client.sendMessage(message.from, '🎬 استلمت الفيديو. ممكن توضحلي بالكتابة إيه المطلوب?');
+            return;
+          }
+        }
+      } catch (mediaErr) {
+        console.error('❌ خطأ في معالجة الميديا:', mediaErr.message);
+        try { await client.sendMessage(message.from, '❌ حصل خطأ في معالجة المرفق، جرب تاني'); } catch {}
+        return;
+      }
+    }
+
+    // تأكد أن النص موجود (بعد معالجة الميديا)
+    if (!msgText) return;
 
     // ════════════════════════════════════════════
     // 1️⃣ أول حاجة: فحص الأسعار — يسبق أي شيء
@@ -318,55 +395,6 @@ function startBot(ioInstance) {
       return;
     }
     if (priceReply) { await client.sendMessage(message.from, priceReply); return; }
-
-    // ════════════════════════════════════════════
-    // 2️⃣ معالجة الرسائل الصوتية (فويس)
-    // ════════════════════════════════════════════
-    if (message.hasMedia) {
-      try {
-        const media = await message.downloadMedia();
-        if (media && media.mimetype && media.mimetype.startsWith('audio/')) {
-          const audioBuffer = Buffer.from(media.data, 'base64');
-          await client.sendMessage(message.from, '⏳ جاري تفريغ الصوت... ثواني');
-          const transcription = await getWhisperTranscription(audioBuffer);
-          if (transcription && transcription.length > 2) {
-            console.log('🎤 تفريغ صوتي:', transcription);
-            let voiceReply = directPriceMatch(transcription);
-            if (voiceReply === 'GROUP_ASK') {
-              await client.sendMessage(message.from, 'هل أنت سباك؟');
-              userStates[message.from] = 'waiting_for_plumber_check';
-              try { const tts = new gTTS('هل أنت سباك؟', 'ar'); const a = path.join(tempDir, `grp_${Date.now()}.mp3`); await new Promise((r,j)=>{tts.save(a,(e)=>{if(e)j(e);else r();});}); if (fs.existsSync(a)) { await client.sendMessage(message.from, MessageMedia.fromFilePath(a), { sendAudio: true }); try { fs.unlinkSync(a); } catch {} } } catch {}
-              return;
-            }
-            if (!voiceReply) voiceReply = await generateBotReply(transcription);
-            if (voiceReply) {
-              await client.sendMessage(message.from, voiceReply);
-              try {
-                const tts = new gTTS(voiceReply, 'ar');
-                const audioFile = path.join(tempDir, `reply_${Date.now()}.mp3`);
-                await new Promise((resolve, reject) => {
-                  tts.save(audioFile, (err) => { if (err) reject(err); else resolve(); });
-                });
-                if (fs.existsSync(audioFile)) {
-                  const audioMedia = MessageMedia.fromFilePath(audioFile);
-                  await client.sendMessage(message.from, audioMedia, { sendAudio: true });
-                  try { fs.unlinkSync(audioFile); } catch {}
-                }
-              } catch (ttsErr) {
-                console.error('❌ gTTS فشل:', ttsErr.message);
-              }
-            }
-          } else {
-            await client.sendMessage(message.from, '💬 معذرة ما فهمت الفويس، ممكن تكتب رسالة؟');
-          }
-          return;
-        }
-      } catch (mediaErr) {
-        console.error('❌ خطأ في معالجة الصوت:', mediaErr.message);
-        try { await client.sendMessage(message.from, '❌ حصل خطأ في معالجة الفويس، جرب تاني'); } catch {}
-        return;
-      }
-    }
 
     console.log('📩 رسالة واردة:', msgText.substring(0, 100));
 

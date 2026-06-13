@@ -34,7 +34,8 @@ RUN npm install --omit=dev && npm cache clean --force
 
 COPY . .
 
-EXPOSE 3001
+EXPOSE 7860
+ENV PORT=7860
 
 VOLUME ["/app/data", "/app/.wwebjs_auth"]
 

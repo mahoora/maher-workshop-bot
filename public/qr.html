@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html dir="rtl">
+<head><meta charset="UTF-8"><title>QR - مسح الرمز</title>
+<style>body{display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;padding:20px}img{max-width:350px;border-radius:12px;border:3px solid #ddd;padding:10px;background:#fff}h3{color:#333;margin:0}p{color:#666;font-size:14px}</style>
+</head>
+<body>
+<h3>📱 امسح QR لربط الواتساب</h3>
+<img id="qr" src="" alt="QR Code">
+<p>افتح واتساب ← القائمة ← الأجهزة المرتبطة ← مسح QR</p>
+<script>fetch('/api/status').then(r=>r.json()).then(d=>{if(d.qr)document.getElementById('qr').src=d.qr;else document.body.innerHTML+='<p style=color:red>⚠️ QR غير متاح بعد، حاول تحديث الصفحة</p>'}).catch(()=>document.body.innerHTML='<p style=color:red>⚠️ خطأ في تحميل QR</p>');setInterval(()=>{fetch('/api/status').then(r=>r.json()).then(d=>{if(d.qr)document.getElementById('qr').src=d.qr})},5000)</script>
+</body>
+</html>

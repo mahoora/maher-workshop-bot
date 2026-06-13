@@ -242,14 +242,13 @@ function startBot(ioInstance) {
     if (fs.existsSync(p)) { chromePath = p; break; }
   }
   const puppeteerOpts = {
-    headless: true,
+    headless: 'new',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
       '--no-zygote',
-      '--single-process',
       '--disable-software-rasterizer',
       '--no-first-run',
       '--no-default-browser-check',
@@ -257,7 +256,8 @@ function startBot(ioInstance) {
       '--disable-background-networking',
       '--disable-sync',
       '--metrics-recording-only',
-      '--mute-audio'
+      '--mute-audio',
+      '--disable-web-security'
     ],
     timeout: 120000
   };

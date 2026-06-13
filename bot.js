@@ -279,7 +279,10 @@ function startBot(ioInstance) {
     console.log('📱 امسح رمز QR ده باستخدام WhatsApp');
     try {
       currentQRDataURL = await QRCode.toDataURL(qr, { width: 400, margin: 2 });
-    } catch {}
+      const base64Data = currentQRDataURL.replace(/^data:image\/png;base64,/, '');
+      fs.writeFileSync(path.join(__dirname, 'qr_latest.png'), base64Data, 'base64');
+      console.log('💾 QR محفوظ في qr_latest.png');
+    } catch (e) { console.error('فشل حفظ QR:', e.message); }
     updateState({ status: 'qr', qrCode: qr, qrDataURL: currentQRDataURL });
     if (io) io.emit('qr', currentQRDataURL);
   });

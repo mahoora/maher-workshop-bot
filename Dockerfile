@@ -35,4 +35,4 @@ ENV PORT=7860
 ENV DATA_DIR=/data
 ENV WWebJSAuthPath=/data/.wwebjs_auth
 
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "rm -rf /data/.wwebjs_auth && node server.js"]

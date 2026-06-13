@@ -1,0 +1,9 @@
+node_modules
+.wwebjs_auth
+.wwebjs_cache
+temp
+workshop.db
+bot_err.log
+bot_out.log
+start.bat
+.git

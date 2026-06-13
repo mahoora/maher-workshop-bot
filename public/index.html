@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم - ورشة ماهر البدري</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #f0f2f5;
+            color: #1a1a2e;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header {
+            background: linear-gradient(135deg, #25D366, #128C7E);
+            color: white;
+            padding: 25px 30px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        .header h1 { font-size: 28px; margin-bottom: 8px; }
+        .header p { font-size: 14px; opacity: 0.9; }
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 12px;
+        }
+        .status-dot {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-dot.connected { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; }
+        .status-dot.disconnected { background: #f44336; box-shadow: 0 0 8px #f44336; }
+        .status-dot.initializing, .status-dot.qr { background: #FF9800; box-shadow: 0 0 8px #FF9800; }
+        .status-dot.stopped { background: #9e9e9e; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 25px; }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .card h3 { font-size: 16px; color: #666; margin-bottom: 15px; }
+        .toggle-container { display: flex; align-items: center; gap: 15px; }
+        .toggle {
+            position: relative;
+            width: 60px; height: 32px;
+            background: #f44336;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: 0.3s;
+            border: none;
+        }
+        .toggle.active { background: #4CAF50; }
+        .toggle:after {
+            content: '';
+            position: absolute;
+            top: 3px; left: 3px;
+            width: 26px; height: 26px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        .toggle.active:after { left: 31px; }
+        .mode-label { font-size: 18px; font-weight: bold; }
+        .mode-label.auto { color: #4CAF50; }
+        .mode-label.manual { color: #f44336; }
+        .stat-number { font-size: 32px; font-weight: bold; color: #128C7E; }
+        .table-wrapper { overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        thead { background: #128C7E; color: white; }
+        th, td { padding: 12px 15px; text-align: center; }
+        th { font-weight: 600; }
+        tr:nth-child(even) { background: #f8f9fa; }
+        tr:hover { background: #e9f7ef; }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge.new { background: #e3f2fd; color: #1565c0; }
+        .badge.done { background: #e8f5e9; color: #2e7d32; }
+        .form-section {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .form-section h3 { margin-bottom: 15px; color: #128C7E; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 600; color: #555; }
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .form-group input:focus, .form-group textarea:focus {
+            border-color: #25D366;
+            outline: none;
+        }
+        .btn {
+            background: #25D366;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .btn:hover { background: #128C7E; }
+        .btn-danger { background: #f44336; }
+        .btn-danger:hover { background: #d32f2f; }
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .product-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            border: 1px solid #eee;
+        }
+        .product-item .name { font-weight: 600; font-size: 14px; }
+        .product-item .price { color: #128C7E; font-weight: bold; margin-top: 5px; }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .refresh-btn {
+            background: none;
+            border: 1px solid #ddd;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .refresh-btn:hover { background: #f0f0f0; }
+        .header-actions { display: flex; justify-content: space-between; align-items: center; }
+        @media (max-width: 768px) {
+            .header h1 { font-size: 20px; }
+            .cards { grid-template-columns: 1fr; }
+        }
+        .blocked-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .blocked-item {
+            background: #ffebee;
+            color: #c62828;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🔧 ورشة ماهر البدري للصيانة والإيجار</h1>
+        <p>لوحة التحكم والإدارة - بوت واتساب الذكي</p>
+        <div class="status-bar">
+            <span class="status-dot stopped" id="statusDot"></span>
+            <span id="statusText">جاري التحميل...</span>
+        </div>
+    </div>
+    <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px 16px;margin-bottom:20px;text-align:center;">
+        <strong>⚠️ تنبيه:</strong> إذا شفت صفحة "Get Started" بدل لوحة التحكم، اكتب الرابط ده في شريط العنوان:<br>
+        <span style="font-size:20px;font-weight:bold;color:#128C7E;" dir="ltr">http://localhost:3001</span>
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <h3>🤖 وضع البوت</h3>
+            <div class="toggle-container">
+                <button class="toggle" id="modeToggle" onclick="toggleMode()"></button>
+                <span class="mode-label auto" id="modeLabel">🟢 تلقائي</span>
+            </div>
+            <p style="margin-top:10px;font-size:13px;color:#888;">
+                <strong>يدوي:</strong> البوت واقف وإنت الي ترد<br>
+                <strong>تلقائي:</strong> البوت يرد تلقائياً
+            </p>
+        </div>
+
+        <div class="card" id="qrCard" style="display:none;">
+            <h3>📱 امسح QR لربط الواتساب</h3>
+            <div style="text-align:center;padding:10px;">
+                <img id="qrImage" src="" alt="QR Code" style="max-width:250px;border-radius:8px;border:2px solid #ddd;">
+                <p style="margin-top:8px;font-size:13px;color:#666;">افتح واتساب ← القائمة ← الأجهزة المرتبطة ← مسح QR</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📊 إحصائيات</h3>
+            <div class="stat-number" id="orderCount">0</div>
+            <div style="color:#666;font-size:13px;">إجمالي الطلبات المسجلة</div>
+        </div>
+
+        <div class="card">
+            <h3>🚫 الأرقام المحظورة</h3>
+            <div id="blockedContainer">
+                <div class="empty-state">لا توجد أرقام محظورة</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-section">
+        <h3>📝 تسجيل طلب جديد (يدوي)</h3>
+        <form action="/api/order-web" method="POST">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
+                <div class="form-group">
+                    <label>الاسم</label>
+                    <input type="text" name="customer_name" required placeholder="اسم العميل">
+                </div>
+                <div class="form-group">
+                    <label>رقم الجوال</label>
+                    <input type="text" name="phone" placeholder="05xxxxxxxx">
+                </div>
+                <div class="form-group">
+                    <label>المنتج / الخدمة</label>
+                    <input type="text" name="item" required placeholder="اسم المنتج">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>تفاصيل إضافية</label>
+                <textarea name="details" rows="2" placeholder="أي تفاصيل إضافية..."></textarea>
+            </div>
+            <button type="submit" class="btn">💾 حفظ الطلب</button>
+        </form>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+        <h2 style="font-size:20px;color:#1a1a2e;">📋 قائمة الطلبات</h2>
+        <button class="refresh-btn" onclick="loadOrders()">🔄 تحديث</button>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>الاسم</th>
+                    <th>الجوال</th>
+                    <th>المنتج</th>
+                    <th>التفاصيل</th>
+                    <th>تاريخ</th>
+                </tr>
+            </thead>
+            <tbody id="ordersTable">
+                <tr><td colspan="6" class="empty-state">لا توجد طلبات</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div style="margin-top:25px;">
+        <h2 style="font-size:20px;color:#1a1a2e;margin-bottom:10px;">🏗️ قائمة المنتجات والأسعار</h2>
+        <div class="products-grid" id="productsGrid"></div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+
+    function toggleMode() {
+        const toggle = document.getElementById('modeToggle');
+        const label = document.getElementById('modeLabel');
+        const isAuto = toggle.classList.contains('active');
+        const newMode = isAuto ? 'manual' : 'auto';
+        socket.emit('set_mode', newMode);
+        fetch('/api/mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: newMode })
+        }).then(r => r.json()).then(d => {
+            if (d.success) updateMode(d.mode);
+        });
+    }
+
+    function updateMode(mode) {
+        const toggle = document.getElementById('modeToggle');
+        const label = document.getElementById('modeLabel');
+        if (mode === 'auto') {
+            toggle.classList.add('active');
+            label.className = 'mode-label auto';
+            label.textContent = '🟢 تلقائي';
+        } else {
+            toggle.classList.remove('active');
+            label.className = 'mode-label manual';
+            label.textContent = '🔴 يدوي';
+        }
+    }
+
+    function updateStatus(status) {
+        const dot = document.getElementById('statusDot');
+        const text = document.getElementById('statusText');
+        dot.className = 'status-dot ' + status;
+        const statusMap = {
+            'connected': '✅ متصل',
+            'disconnected': '❌ غير متصل',
+            'initializing': '⚙️ جاري التهيئة...',
+            'qr': '📱 انتظر مسح QR',
+            'stopped': '⏹️ متوقف'
+        };
+        text.textContent = statusMap[status] || status;
+    }
+
+    socket.on('mode', updateMode);
+    socket.on('status', updateStatus);
+    socket.on('qr', (dataURL) => {
+        const card = document.getElementById('qrCard');
+        const img = document.getElementById('qrImage');
+        if (dataURL) {
+            card.style.display = 'block';
+            img.src = dataURL;
+        } else {
+            card.style.display = 'none';
+        }
+    });
+
+    socket.on('new_order', () => { loadOrders(); });
+
+    socket.on('orders_list', (orders) => {
+        const tbody = document.getElementById('ordersTable');
+        if (!orders || orders.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">لا توجد طلبات</td></tr>';
+            document.getElementById('orderCount').textContent = '0';
+            return;
+        }
+        document.getElementById('orderCount').textContent = orders.length;
+        tbody.innerHTML = orders.map(o => {
+            const date = o.created_at ? new Date(o.created_at).toLocaleDateString('ar-SA') : '-';
+            return `<tr>
+                <td>${o.id}</td>
+                <td>${o.customer_name || '-'}</td>
+                <td dir="ltr">${o.phone || '-'}</td>
+                <td>${o.item || '-'}</td>
+                <td>${o.details || '-'}</td>
+                <td>${date}</td>
+            </tr>`;
+        }).join('');
+    });
+
+    socket.on('blocked_list', (blocked) => {
+        const container = document.getElementById('blockedContainer');
+        if (!blocked || blocked.length === 0) {
+            container.innerHTML = '<div class="empty-state">لا توجد أرقام محظورة</div>';
+            return;
+        }
+        container.innerHTML = '<div class="blocked-list">' +
+            blocked.map(b => `<span class="blocked-item">${b.phone}</span>`).join('') +
+            '</div>';
+    });
+
+    socket.on('blocked_update', () => { socket.emit('get_blocked'); });
+
+    function loadOrders() { socket.emit('get_orders'); }
+    function loadBlocked() { socket.emit('get_blocked'); }
+
+    fetch('/api/products').then(r => r.json()).then(products => {
+        const grid = document.getElementById('productsGrid');
+        grid.innerHTML = products.map(p =>
+            `<div class="product-item">
+                <div class="name">${p.name}</div>
+                <div class="price">💰 ${p.price}</div>
+            </div>`
+        ).join('');
+    });
+
+    setInterval(() => { socket.emit('get_orders'); socket.emit('get_blocked'); }, 30000);
+
+    fetch('/api/status').then(r => r.json()).then(s => {
+        if (s.mode) updateMode(s.mode);
+        if (s.status) updateStatus(s.status);
+        if (s.qr && s.status === 'qr') {
+            document.getElementById('qrCard').style.display = 'block';
+            document.getElementById('qrImage').src = s.qr;
+        }
+    }).catch(() => {});
+
+    loadOrders();
+    loadBlocked();
+</script>
+</body>
+</html>

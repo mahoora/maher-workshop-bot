@@ -549,7 +549,10 @@ function startBot(ioInstance) {
     return fallbacks[Math.floor(Math.random() * fallbacks.length)];
   }
 
-  client.initialize();
+  client.initialize().catch((err) => {
+    console.error('❌ فشل تشغيل البوت:', err.message);
+    updateState({ status: 'disconnected' });
+  });
   updateState({ status: 'initializing' });
   return client;
 }

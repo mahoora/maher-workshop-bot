@@ -252,8 +252,17 @@ function startBot(ioInstance) {
       '--disable-dev-shm-usage',
       '--disable-gpu',
       '--no-zygote',
-      '--single-process'
-    ]
+      '--single-process',
+      '--disable-software-rasterizer',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--metrics-recording-only',
+      '--mute-audio'
+    ],
+    timeout: 120000
   };
   if (chromePath) puppeteerOpts.executablePath = chromePath;
 
@@ -284,9 +293,14 @@ function startBot(ioInstance) {
     if (io) io.emit('status', 'connected');
   });
 
-  client.on('disconnected', () => {
-    console.log('❌ تم قطع الاتصال');
+  client.on('disconnected', (reason) => {
+    console.log('❌ تم قطع الاتصال:', reason);
     updateState({ status: 'disconnected' });
+  });
+
+  client.on('auth_failure', (msg) => {
+    console.error('❌ فشل المصادقة:', msg);
+    updateState({ status: 'initializing' });
   });
 
   client.on('message', async (message) => {

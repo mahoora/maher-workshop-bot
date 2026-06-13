@@ -37,9 +37,7 @@ COPY . .
 EXPOSE 7860
 ENV PORT=7860
 
-VOLUME ["/app/data", "/app/.wwebjs_auth"]
-
-ENV DATA_DIR=/app/data
-ENV AUTH_DIR=/app/.wwebjs_auth
+ENV DATA_DIR=/data
+ENV WWebJSAuthPath=/data/.wwebjs_auth
 
 CMD ["node", "server.js"]

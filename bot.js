@@ -257,8 +257,9 @@ function startBot(ioInstance) {
   };
   if (chromePath) puppeteerOpts.executablePath = chromePath;
 
+  const authPath = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, '.wwebjs_auth') : undefined;
   const client = new Client({
-    authStrategy: new LocalAuth(),
+    authStrategy: new LocalAuth({ dataPath: authPath }),
     puppeteer: puppeteerOpts
   });
 

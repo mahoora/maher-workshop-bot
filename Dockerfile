@@ -35,4 +35,5 @@ ENV PORT=7860
 ENV DATA_DIR=/data
 ENV WWebJSAuthPath=/data/.wwebjs_auth
 
-CMD ["node", "server.js"]
+RUN chmod +x start.sh
+CMD ["bash", "start.sh"]

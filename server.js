@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const fs = require('fs');
+const AdmZip = require('adm-zip');
 const { initDB, getOrders, addOrder, getBlockedNumbers } = require('./database');
 const { startBot, setStateCallback, setBotMode, getQRDataURL } = require('./bot');
 
@@ -10,8 +12,8 @@ const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: '*' } });
 const PORT = process.env.PORT || 3001;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 let botMode = 'auto';
@@ -74,6 +76,29 @@ app.post('/api/mode', (req, res) => {
   } else {
     res.status(400).json({ error: 'mode must be auto or manual' });
   }
+});
+
+app.post('/api/upload-session', (req, res) => {
+  try {
+    const { zipBase64 } = req.body;
+    if (!zipBase64) return res.status(400).json({ error: 'zipBase64 required' });
+    const authPath = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, '.wwebjs_auth') : null;
+    if (!authPath) return res.status(400).json({ error: 'DATA_DIR not set' });
+    if (!fs.existsSync(authPath)) fs.mkdirSync(authPath, { recursive: true });
+    const zip = new AdmZip(Buffer.from(zipBase64, 'base64'));
+    zip.extractAllTo(authPath, true);
+    console.log('📦 تم استلام وفك الجلسة إلى', authPath);
+    res.json({ success: true, path: authPath, files: zip.getEntries().length });
+  } catch (e) {
+    console.error('❌ فشل رفع الجلسة:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/restart', (req, res) => {
+  console.log('🔄 إعادة تشغيل ...');
+  res.json({ success: true });
+  setTimeout(() => process.exit(0), 500);
 });
 
 app.get('/api/blocked', (req, res) => {

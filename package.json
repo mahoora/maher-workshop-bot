@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "bot": "node server.js"
+    "bot": "node server.js",
+    "postinstall": "node patch-wwebjs.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",

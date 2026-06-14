@@ -51,29 +51,31 @@ function getProductListText() {
   return list;
 }
 
-const GENERAL_RESPONSES = [
-  { keywords: ['السلام عليكم', 'سلام عليكم', 'سلام'], response: 'وعليكم السلام ورحمة الله وبركاته\n' + WELCOME_MSG },
-  { keywords: ['هلا', 'مرحبا', 'مرحب', 'اهلين', 'هلابك'], response: 'هلا والله\n' + WELCOME_MSG },
-  { keywords: ['صباح الخير', 'صباح النور'], response: 'صباح النور والسرور\n' + WELCOME_MSG },
-  { keywords: ['مساء الخير', 'مساء النور'], response: 'مساء النور\n' + WELCOME_MSG },
-  { keywords: ['إزيك', 'عاملة إيه', 'عامل إيه', 'اخبارك'], response: 'الحمد للله، تمام.\n' + WELCOME_MSG },
-  { keywords: ['شكرا', 'متشكر', 'جزاك الله'], response: 'الشكر لله، دايماً تحت أمرك في ' + WORKSHOP_NAME },
-  { keywords: ['مع السلامة', 'باى', 'باي'], response: 'مع السلامة، ربنا يحفظك. تحت أمرك في أي وقت.' },
-  { keywords: ['العنوان', 'عنوانكم', 'عنوان', 'موقع الورشة', 'الورشة فين', 'العنوان إيه', 'فين ورشتكم', 'فين الورشة', 'مقركم', 'مكانكم', 'مكان الورشة', 'موقعكم'], response: WORKSHOP_ADDRESS },
-  { keywords: ['الجروب', 'رابط الجروب', 'جروب السباكين', 'جروب'], response: 'GROUP_ASK' },
-  { keywords: ['قائمة الاسعار', 'قائمة الأسعار', 'الاسعار', 'الأسعار', 'عندك إيه', 'الكتالوج', 'المنتجات', 'عندك ايه', 'القائمة'], response: () => getProductListText() },
-  { keywords: ['تصليح', 'عطل', 'تصلح', 'قطع غيار', 'صيانة', 'كسران', 'باين', 'تلفان', 'مكسور'], response: MAINTENANCE_REPLY },
-  { keywords: ['المعذرة', 'عفوا', 'آسف'], response: 'معلهش، ولا يهمك.' },
-  { keywords: ['عايز أأجر', 'عايز أطلب'], response: 'ORDER_REQUEST' },
-  { keywords: ['عايز أشتري', 'عايز اشتري'], response: 'ORDER_REQUEST' }
-];
 
-async function getAIResponse(text) {
+
+async function getAIResponse(text, clientName, history, isFirst) {
   try {
+    let historyBlock = '';
+    if (history && history.length > 0) {
+      historyBlock = history.map(m =>
+        m.role === 'user' ? `العميل: ${m.content}` : `ماهر البدري: ${m.content}`
+      ).join('\n') + '\n';
+    }
+    const firstMsgNote = isFirst
+      ? 'هذه أول رسالة من العميل. رحب به ترحيبة بسيطة.'
+      : 'هذه ليست أول رسالة. لا ترحب.';
+    const systemPrompt = `أنت ماهر البدري، صاحب ورشة صيانة وإيجار معدات الحريق والسباكة في مكة.
+تتحدث بلسانك (أنا) باللهجة المصرية العامية 100%.
+${firstMsgNote}
+استخدم اسم العميل (${clientName}) وناده بشكل ودي (يا أستاذ ${clientName}، يا هندسة).
+إذا سألك عن أسعار المعدات أو الإيجار جاوبه مباشرة بالقائمة المتوفرة.
+إذا سألك عن كلام عام أو دردشة رد عليه بأسلوب ودود.
+ممنوع إنجليزي. ردودك مختصرة ومفيدة.`;
+    const fullInput = `${systemPrompt}\n\n${historyBlock}العميل ${clientName}: ${text}\n\nماهر البدري:`;
     const res = await axios.post('https://api-inference.huggingface.co/models/google/gemma-2-2b-it', {
-      inputs: `<start_of_turn>user\nأنت مساعد مصري اسمك "بوت ماهر". تتكلم باللهجة المصرية العامية 100% وبس. استخدم الكلمات دي: إيه, عايز, كده, دلوقتي, إزيك, خلاص, طيب, أيوة, لأ, يبقى, كمان, برضه, بقى. ردك يكون قصير ومختصر ومفيد جداً على قد السؤال. ممنوع تستخدم أي كلمة إنجليزية.\n\nالزبون: ${text}\n\nassistant:</start_of_turn>`,
-      parameters: { max_new_tokens: 100, temperature: 0.7, return_full_text: false }
-    }, { timeout: 5000 });
+      inputs: `<start_of_turn>user\n${fullInput}\n\nassistant:</start_of_turn>`,
+      parameters: { max_new_tokens: 150, temperature: 0.7, return_full_text: false }
+    }, { timeout: 8000 });
     let reply = '';
     if (Array.isArray(res.data) && res.data[0] && res.data[0].generated_text) {
       reply = res.data[0].generated_text.trim();
@@ -113,22 +115,6 @@ function normalizeText(text) {
   t = t.replace(/[ى]/g, 'ي');
   t = t.replace(/[ة]/g, 'ه');
   return t;
-}
-
-function getGeneralResponse(text) {
-  const lower = normalizeText(text);
-  for (const entry of GENERAL_RESPONSES) {
-    for (const kw of entry.keywords) {
-      if (lower.includes(normalizeText(kw))) {
-        const resp = entry.response;
-        if (resp === 'ORDER_REQUEST') return 'ORDER_REQUEST';
-        if (resp === 'GROUP_ASK') return 'GROUP_ASK';
-        if (typeof resp === 'function') return resp();
-        return resp;
-      }
-    }
-  }
-  return null;
 }
 
 function directPriceMatch(text) {
@@ -214,6 +200,8 @@ async function handleOrderStep(client, message, session) {
 }
 
 const userStates = {};
+const conversations = {};
+const MAX_CONV_HISTORY = 6;
 let botClient = null;
 let botStateCallback = null;
 let currentQRDataURL = '';
@@ -357,7 +345,8 @@ function startBot(ioInstance) {
                 reply = 'هل أنت سباك؟';
                 userStates[message.from] = 'waiting_for_plumber_check';
               }
-              if (!reply) reply = await generateBotReply(transcription);
+              const nameHint = message._data?.notifyName || senderNumber;
+              if (!reply) reply = await generateBotReply(transcription, nameHint, senderNumber);
               if (reply) {
                 await sendTextAndAudio(message.from, reply);
               }
@@ -491,7 +480,7 @@ function startBot(ioInstance) {
         await client.sendMessage(message.from, greeting);
         await new Promise(r => setTimeout(r, 500));
         if (msgText.length > 3) {
-          const ai = await getAIResponse(msgText);
+          const ai = await getAIResponse(msgText, shortName, null, false);
           if (ai) {
             await client.sendMessage(message.from, ai);
           }
@@ -520,7 +509,7 @@ function startBot(ioInstance) {
     }
 
     // Normal message handling
-    const reply = await generateBotReply(msgText);
+    const reply = await generateBotReply(msgText, shortName, senderNumber);
     if (reply) {
       if (reply === 'ORDER_REQUEST') {
         const session = await createOrderFlow(client, message.from);
@@ -533,6 +522,8 @@ function startBot(ioInstance) {
         return;
       }
       await client.sendMessage(message.from, reply);
+      addConversation(senderNumber, 'user', msgText);
+      addConversation(senderNumber, 'assistant', reply);
       console.log('✅ رد البوت:', reply.substring(0, 100));
     }
     } catch (e) {
@@ -540,45 +531,35 @@ function startBot(ioInstance) {
     }
   });
 
-  async function generateBotReply(text) {
+  function addConversation(phone, role, content) {
+    if (!conversations[phone]) conversations[phone] = { history: [], welcomed: false };
+    conversations[phone].history.push({ role, content });
+    if (conversations[phone].history.length > MAX_CONV_HISTORY) {
+      conversations[phone].history = conversations[phone].history.slice(-MAX_CONV_HISTORY);
+    }
+  }
+
+  async function generateBotReply(text, clientName, phone) {
     text = text.trim();
     if (!text || text.length < 2) return null;
 
     const lower = normalizeText(text);
-
-    // Check if asking about all products generally
-    const askWords = ['عندك', 'في مكن', 'في ماكين', 'في معد', 'الإيجار', 'ايه عندك', 'عندك ايه', 'تأجير'];
-    for (const w of askWords) {
-      if (lower.includes(normalizeText(w))) return getProductListText();
+    const orderWords = ['عايز أأجر', 'عايز أطلب', 'عايز اشتري'];
+    for (const w of orderWords) {
+      if (lower.includes(normalizeText(w))) return 'ORDER_REQUEST';
     }
 
-    // Check general responses
-    const general = getGeneralResponse(text);
-    if (general) {
-      if (general === 'ORDER_REQUEST') return 'ORDER_REQUEST';
-      return general;
+    if (!conversations[phone]) conversations[phone] = { history: [], welcomed: false };
+    const conv = conversations[phone];
+    const isFirst = !conv.welcomed;
+
+    let reply = await getAIResponse(text, clientName, conv.history, isFirst);
+    if (!reply) {
+      reply = `أهلاً يا أستاذ ${clientName}، أنا ماهر البدري صاحب الورشة، أي خدمة تحتاجها في معدات الحريق والسباكة أنا تحت أمرك.`;
     }
 
-    // Maintenance check
-    const maintKeywords = ['تصليح', 'عطل', 'تصلح', 'قطع غيار', 'صيانة', 'كسران', 'باين', 'خلل', 'تلفان', 'مكسور', 'خراب', 'تغير', 'عايز اصلح', 'عايزه اصلح', 'صلح', 'كشف'];
-    for (const kw of maintKeywords) {
-      if (lower.includes(normalizeText(kw))) return `من ${WORKSHOP_NAME}:\n` + MAINTENANCE_REPLY;
-    }
-
-    // Location check (backup - already handled in GENERAL_RESPONSES)
-    const locKeywords = ['العنوان', 'الورشه فين', 'الورشة فين', 'موقع', 'فين ورشتكم', 'مكان', 'فين ورشتكم', 'مقركم'];
-    for (const kw of locKeywords) {
-      if (lower.includes(normalizeText(kw))) return WORKSHOP_ADDRESS;
-    }
-
-    // Ultimate fallback
-    const fallbacks = [
-      'أي خدمة يا معلم؟',
-      'حاضر. عايز إيه بالظبط؟',
-      'تحت أمرك، عايز تستفسر عن إيه؟',
-      'أنا موجود يا معلم. عايز إيه؟'
-    ];
-    return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    if (conv.welcomed === false) conv.welcomed = true;
+    return reply;
   }
 
   client.initialize().catch((err) => {

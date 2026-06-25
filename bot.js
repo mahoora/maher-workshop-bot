@@ -1,592 +1,549 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-const QRCode = require('qrcode');
-const path = require('path');
-const fs = require('fs');
-const axios = require('axios');
-const gTTS = require('gtts');
+import fs from "node:fs/promises";
+import http from "node:http";
+import makeWASocket, {
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  useMultiFileAuthState
+} from "@whiskeysockets/baileys";
+import axios from "axios";
+import dotenv from "dotenv";
+import pino from "pino";
+import QRCode from "qrcode";
+import qrcodeTerminal from "qrcode-terminal";
 
-const { addOrder, blockNumber, unblockNumber, isBlocked } = require('./database');
+dotenv.config();
 
-const ADMIN_NUMBER = '201093122475';
-const whatsappGroupLink = 'https://chat.whatsapp.com/DL3qCnpSs6fHU5VYZgDgNL';
-const WORKSHOP_ADDRESS = '📍 شارع الحج، مكة المكرمة، الصنايعية الجديدة، بجوار مركز تقدير للسيارات';
-const MAINTENANCE_REPLY = 'موجود كل حاجة إن شاء الله، جيبها الورشة';
-const WORKSHOP_NAME = 'ماهر البدري للصيانة والإيجار';
-const WELCOME_MSG = '👋 أهلاً بيك في ' + WORKSHOP_NAME + '\nكيف أقدر أخدمك؟';
+const logger = pino({ level: process.env.LOG_LEVEL || "info" });
 
-const PRODUCTS = {
-  'ماكينة سن 2 بوصة': { price: '💵 100 ريال / اليوم', keywords: ['سن 2', 'سن 2 بوصة', 'ماكينة سن', 'ماكينه سن', 'مكنة سن', 'مكنه سن', 'سعر السن', 'السن', 'السن 2', 'سن 2 بوصه', 'ماكينة سن 2', 'مكنه سن 2', 'سعر سن 2', 'مكنه السن', 'مكنة السن', 'ماكينه السن', 'ماكينة السن', 'سعر المكنه', 'سعر الماكينه'] },
-  'ماكينة سن 3 بوصة': { price: '💵 120 ريال / اليوم', keywords: ['سن 3', 'سن 3 بوصة', 'ماكينة سن 3', 'ماكينه سن 3', 'مكنة سن 3', 'مكنه سن 3', 'السن', 'السن 3', 'سن 3 بوصه', 'سعر سن 3', 'مكنه السن 3', 'مكنة السن 3'] },
-  'مكنة جروف': { price: '💵 80 ريال / اليوم', keywords: ['جروف', 'مكنة جروف', 'ماكينة جروف', 'مكنه جروف', 'ماكينه جروف', 'سعر الجروف', 'الجروف', 'الگروف'] },
-  'خواشة مواسير': { price: '💵 50 ريال / اليوم', keywords: ['خواشة', 'خواشة مواسير', 'خواشه', 'خواشه مواسير', 'سعر الخواشة', 'الخواشة', 'تخويش', 'مواسير'] },
-  'مكنة باركود HDP': { price: '💵 200 ريال / اليوم', keywords: ['باركود', 'HDP', 'باركود hdp', 'مكنة باركود', 'مكنه باركود', 'باركد', 'الباركود', 'سعر الباركود', 'ماكينة باركود', 'ماكينه باركود'] },
-  'مكنة ضغط مياه (كهرباء)': { price: '💵 50 ريال / اليوم', keywords: ['ضغط كهرباء', 'ضغط كهربا', 'ضغط مياه كهرباء', 'ضغط مياه كهربا', 'ضغط ميه كهربا', 'ضغط ميه كهرباء', 'مكنة ضغط كهربا', 'مكنه ضغط كهربا', 'مكنة ضغط كهرباء', 'مكنه ضغط كهرباء', 'ماكينة ضغط كهربا', 'سعر ضغط كهربا'] },
-  'مكنة ضغط مياه (ديزل)': { price: '💵 70 ريال / اليوم', keywords: ['ضغط ديزل', 'ضغط مياه ديزل', 'ضغط ميه ديزل', 'مكنة ضغط ديزل', 'مكنه ضغط ديزل', 'ماكينة ضغط ديزل', 'سعر ضغط ديزل', 'ضغط الديزل'] },
-  'مكنة HDP راس في راس': { price: '💵 200 ريال / اليوم', keywords: ['hdp راس', 'راس في راس', 'hdp راس براس', 'راس براس', 'hdp راس براس', 'رأس برأس', 'رأس في رأس', 'hdp'] },
-  'مولد كهرباء 3 كيلو': { price: '💵 100 ريال / اليوم', keywords: ['مولد', 'مولد كهرباء', 'مولد كهربا', '3 كيلو', 'مولد 3', 'المو', 'مولد 3 كيلو', 'مولد ثلاث', 'المولد', 'سعر المولد'] },
-  'مقص 8 بوصة': { price: '💵 100 ريال / اليوم', keywords: ['مقص', 'مقص 8', 'مقص 8 بوصة', 'مقص 8 بوصه', 'مقص بوصة', 'سعر المقص', 'المقص'] }
-};
+const PORT = Number(process.env.PORT || 3000);
+const OLLAMA_API = process.env.OLLAMA_API || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "mistral";
+const USE_OLLAMA = process.env.USE_OLLAMA !== "false";
+const SETTINGS_FILE = process.env.SETTINGS_FILE || "bot-settings.json";
 
-const FAMILY = {
-  'سعاد': { mode: 'wife', greeting: 'حياتي يا سعاد، نورتي الدنيا!', style: 'romantic' },
-  'نورا': { mode: 'wife', greeting: 'يا هلا وسهلا يا نورا يا أجمل اسم في الدنيا!', style: 'romantic' },
-  'إيه': { mode: 'wife', greeting: 'أهلاً يا إيه، نورتي يا جميلة!', style: 'romantic' },
-  'ام السعيد': { mode: 'sister', greeting: 'أهلاً أم السعيد، وحشتينا بجد!', style: 'warm' },
-  'بطه': { mode: 'sister', greeting: 'أهلاً يا بطه، عاملة إيه؟', style: 'warm' },
-  'هيومه': { mode: 'sister', greeting: 'أهلاً يا هيومه، إزيك ياحبيبتي؟', style: 'warm' },
-  'حوده': { mode: 'brother', greeting: 'أهلاً حوده، إزيك يا معلم؟', style: 'manly' },
-  'بوبس': { mode: 'brother', greeting: 'أهلاً بوبس، عامل إيه يا جدع؟', style: 'manly' },
-  'ابو عماد': { mode: 'brother', greeting: 'أهلاً بأبو عماد، إزيك يارجالة؟', style: 'manly' }
-};
+let latestQr = "";
+let latestQrDataUrl = "";
+let isWhatsAppConnected = false;
+let autoReplyEnabled = true;
+let welcomeMessage = "أهلا يا أستاذ {name}. تحت أمرك في إيجار وصيانة معدات الحريق والسباكة. ابعت اسم المعدة أو المشكلة وأنا أقولك التفاصيل.";
 
-function getProductListText() {
-  let list = '📋 *قائمة المنتجات والأسعار*\n';
-  list += '━━━━━━━━━━━━━━\n';
-  let i = 1;
-  for (const [name, data] of Object.entries(PRODUCTS)) {
-    list += `${i}. ${name} ← ${data.price}\n`;
-    i++;
+// Integration with server.js (Express + Socket.IO)
+let ioInstance = null;
+let _stateCallback = null;
+
+export function setStateCallback(cb) { _stateCallback = cb; }
+
+export function setBotMode(mode) {
+  if (mode !== "auto" && mode !== "manual") return false;
+  autoReplyEnabled = mode === "auto";
+  saveSettings();
+  if (_stateCallback) _stateCallback({ mode, status: isWhatsAppConnected ? "connected" : "disconnected" });
+  return true;
+}
+
+export function getQRDataURL() { return latestQrDataUrl; }
+
+const products = [
+  { names: ["ماكينة سن 2", "مكنة سن 2", "ماكينه سن 2", "سن 2", "سن اتنين", "2 بوصة", "2 بوصه"], label: "ماكينة سن 2 بوصة", price: "100 ريال/اليوم" },
+  { names: ["ماكينة سن 3", "مكنة سن 3", "ماكينه سن 3", "سن 3", "سن تلاتة", "سن ثلاثة", "3 بوصة", "3 بوصه"], label: "ماكينة سن 3 بوصة", price: "120 ريال/اليوم" },
+  { names: ["جروف", "groove"], label: "مكنة جروف", price: "80 ريال/اليوم" },
+  { names: ["خواشة", "خواشه", "خواشة مواسير", "خواشه مواسير"], label: "خواشة مواسير", price: "50 ريال/اليوم" },
+  { names: ["باركود", "hpd", "hdp"], label: "مكنة باركود HDP", price: "200 ريال/اليوم" },
+  { names: ["ضغط مياه كهرباء", "ضغط كهرباء", "مكنة ضغط كهرباء", "ماكينة ضغط كهرباء"], label: "مكنة ضغط مياه كهرباء", price: "50 ريال/اليوم" },
+  { names: ["ضغط مياه ديزل", "ضغط ديزل", "مكنة ضغط ديزل", "ماكينة ضغط ديزل"], label: "مكنة ضغط مياه ديزل", price: "70 ريال/اليوم" },
+  { names: ["راس في راس", "رأس في رأس", "hdp راس", "hpd راس"], label: "مكنة HDP راس في راس", price: "200 ريال/اليوم" },
+  { names: ["مولد", "مولد كهرباء", "3 كيلو", "3kw", "٣ كيلو"], label: "مولد كهرباء 3 كيلو", price: "100 ريال/اليوم" },
+  { names: ["مقص", "مقص 8", "8 بوصة", "8 بوصه"], label: "مقص 8 بوصة", price: "100 ريال/اليوم" }
+];
+
+logger.info(`Ollama ${USE_OLLAMA ? "enabled" : "disabled"} at ${OLLAMA_API} with model: ${OLLAMA_MODEL}`);
+
+function json(res, status, data) {
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store"
+  });
+  res.end(JSON.stringify(data));
+}
+
+async function loadSettings() {
+  try {
+    const raw = await fs.readFile(SETTINGS_FILE, "utf8");
+    const settings = JSON.parse(raw);
+    if (typeof settings.autoReplyEnabled === "boolean") autoReplyEnabled = settings.autoReplyEnabled;
+    if (typeof settings.welcomeMessage === "string" && settings.welcomeMessage.trim()) {
+      welcomeMessage = settings.welcomeMessage.trim();
+    }
+  } catch {
+    // First run has no settings file yet.
   }
-  return list;
 }
 
-
-
-async function getAIResponse(text, clientName, history, isFirst) {
-  try {
-    let historyBlock = '';
-    if (history && history.length > 0) {
-      historyBlock = history.map(m =>
-        m.role === 'user' ? `العميل: ${m.content}` : `ماهر البدري: ${m.content}`
-      ).join('\n') + '\n';
-    }
-    const firstMsgNote = isFirst
-      ? 'هذه أول رسالة من العميل. رحب به ترحيبة بسيطة.'
-      : 'هذه ليست أول رسالة. لا ترحب.';
-    const systemPrompt = `أنت ماهر البدري، صاحب ورشة صيانة وإيجار معدات الحريق والسباكة في مكة.
-تتحدث بلسانك (أنا) باللهجة المصرية العامية 100%.
-${firstMsgNote}
-استخدم اسم العميل (${clientName}) وناده بشكل ودي (يا أستاذ ${clientName}، يا هندسة).
-إذا سألك عن أسعار المعدات أو الإيجار جاوبه مباشرة بالقائمة المتوفرة.
-إذا سألك عن كلام عام أو دردشة رد عليه بأسلوب ودود.
-ممنوع إنجليزي. ردودك مختصرة ومفيدة.`;
-    const fullInput = `${systemPrompt}\n\n${historyBlock}العميل ${clientName}: ${text}\n\nماهر البدري:`;
-    const res = await axios.post('https://api-inference.huggingface.co/models/google/gemma-2-2b-it', {
-      inputs: `<start_of_turn>user\n${fullInput}\n\nassistant:</start_of_turn>`,
-      parameters: { max_new_tokens: 150, temperature: 0.7, return_full_text: false }
-    }, { timeout: 8000 });
-    let reply = '';
-    if (Array.isArray(res.data) && res.data[0] && res.data[0].generated_text) {
-      reply = res.data[0].generated_text.trim();
-    } else if (res.data && res.data.generated_text) {
-      reply = res.data.generated_text.trim();
-    }
-    if (reply.length > 5) {
-      reply = reply.replace(/user|assistant|<start_of_turn>|<end_of_turn>/gi, '').trim();
-      return reply;
-    }
-  } catch {}
-  return null;
+async function saveSettings() {
+  await fs.writeFile(
+    SETTINGS_FILE,
+    JSON.stringify({ autoReplyEnabled, welcomeMessage }, null, 2),
+    "utf8"
+  );
 }
 
-async function getWhisperTranscription(audioBuffer) {
-  try {
-    const res = await axios.post('https://api-inference.huggingface.co/models/openai/whisper-large-v3', audioBuffer, {
-      headers: { 'Content-Type': 'audio/wav' },
-      timeout: 30000
-    });
-    if (res.data && res.data.text) return res.data.text.trim();
-  } catch {}
-  try {
-    const res = await axios.post('https://api-inference.huggingface.co/models/openai/whisper-large-v3', audioBuffer, {
-      headers: { 'Content-Type': 'audio/ogg' },
-      timeout: 30000
-    });
-    if (res.data && res.data.text) return res.data.text.trim();
-  } catch {}
-  return null;
+function renderControlPage() {
+  const status = isWhatsAppConnected
+    ? "البوت متصل بواتساب"
+    : latestQrDataUrl
+      ? "امسح الكود من واتساب"
+      : "لسه مستني QR جديد، اعمل تحديث بعد ثواني";
+
+  const qrHtml = latestQrDataUrl
+    ? `<img class="qr" src="${latestQrDataUrl}" alt="WhatsApp QR Code" />`
+    : `<div class="empty">لا يوجد QR حاليًا</div>`;
+
+  const modeText = autoReplyEnabled ? "الرد التلقائي شغال" : "الرد اليدوي شغال";
+
+  return `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="refresh" content="25" />
+  <title>لوحة تحكم بوت واتساب</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #f4f6f8;
+      color: #101828;
+      font-family: Arial, Tahoma, sans-serif;
+    }
+    main {
+      width: min(94vw, 560px);
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 22px;
+      text-align: center;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, .10);
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 0 0 14px; color: #475467; line-height: 1.6; }
+    .qr {
+      width: min(82vw, 360px);
+      height: auto;
+      padding: 8px;
+      border: 1px solid #d0d5dd;
+      border-radius: 6px;
+      background: #fff;
+      image-rendering: pixelated;
+    }
+    .empty {
+      padding: 42px 16px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 6px;
+      color: #667085;
+    }
+    .mode {
+      margin: 16px 0 12px;
+      padding: 10px;
+      border-radius: 6px;
+      background: #f1f5f9;
+      font-weight: 700;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 92px;
+      margin: 8px 0 10px;
+      padding: 10px;
+      border: 1px solid #d0d5dd;
+      border-radius: 6px;
+      resize: vertical;
+      font: inherit;
+      line-height: 1.5;
+    }
+    button {
+      min-height: 46px;
+      border: 0;
+      border-radius: 6px;
+      padding: 10px;
+      color: #fff;
+      background: #0f766e;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary { background: #334155; }
+    button.warn { grid-column: 1 / -1; background: #b45309; }
+    button:disabled { opacity: .65; cursor: wait; }
+    .note { margin-top: 14px; font-size: 13px; color: #667085; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${status}</h1>
+    <p>افتح واتساب: Linked devices ثم Link a device</p>
+    ${qrHtml}
+    <div class="mode" id="mode">${modeText}</div>
+    <div class="controls">
+      <button type="button" onclick="setMode(true)">رد تلقائي</button>
+      <button type="button" class="secondary" onclick="setMode(false)">رد يدوي</button>
+      <button type="button" class="warn" onclick="refreshQr(this)">تجديد الباركود</button>
+    </div>
+    <p class="note">رسالة الترحيب والرد العام</p>
+    <textarea id="welcome">${welcomeMessage}</textarea>
+    <button type="button" class="secondary" onclick="saveWelcome(this)" style="width:100%">حفظ رسالة الترحيب</button>
+    <p class="note">الرابط ثابت. افتحه في أي وقت وهيعرض أحدث باركود موجود.</p>
+  </main>
+  <script>
+    async function setMode(autoReply) {
+      const result = await fetch('/api/mode', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ autoReply })
+      }).then(r => r.json());
+      document.getElementById('mode').textContent = result.autoReplyEnabled ? 'الرد التلقائي شغال' : 'الرد اليدوي شغال';
+    }
+
+    async function refreshQr(button) {
+      if (!confirm('تجديد الباركود هيفصل تسجيل واتساب الحالي ويطلع كود جديد. نكمل؟')) return;
+      button.disabled = true;
+      button.textContent = 'جاري تجديد الباركود...';
+      await fetch('/api/refresh-qr', { method: 'POST' });
+      setTimeout(() => location.reload(), 9000);
+    }
+    async function saveWelcome(button) {
+      button.disabled = true;
+      const welcomeMessage = document.getElementById('welcome').value;
+      await fetch('/api/welcome', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ welcomeMessage })
+      });
+      button.textContent = 'اتحفظت';
+      setTimeout(() => {
+        button.disabled = false;
+        button.textContent = 'حفظ رسالة الترحيب';
+      }, 1200);
+    }
+  </script>
+</body>
+</html>`;
+}
+
+function startWebServer() {
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/qr")) {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "pragma": "no-cache",
+        "expires": "0"
+      });
+      res.end(renderControlPage());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/health") {
+      json(res, 200, {
+        ok: true,
+        service: "maher-workshop-bot",
+        whatsappConnected: isWhatsAppConnected,
+        qrReady: Boolean(latestQr),
+        autoReplyEnabled,
+        welcomeMessage,
+        qrUrl: "/",
+        ollamaEnabled: USE_OLLAMA,
+        model: OLLAMA_MODEL
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/status") {
+      json(res, 200, {
+        ok: true,
+        whatsappConnected: isWhatsAppConnected,
+        qrReady: Boolean(latestQr),
+        autoReplyEnabled,
+        welcomeMessage
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/test-reply") {
+      const text = url.searchParams.get("text") || "";
+      json(res, 200, {
+        ok: true,
+        text,
+        reply: getFallbackResponse(text, "الزميل")
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/mode") {
+      let rawBody = "";
+      for await (const chunk of req) rawBody += chunk;
+      const payload = rawBody ? JSON.parse(rawBody) : {};
+      autoReplyEnabled = Boolean(payload.autoReply);
+      await saveSettings();
+      json(res, 200, { ok: true, autoReplyEnabled });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/welcome") {
+      let rawBody = "";
+      for await (const chunk of req) rawBody += chunk;
+      const payload = rawBody ? JSON.parse(rawBody) : {};
+      if (typeof payload.welcomeMessage === "string" && payload.welcomeMessage.trim()) {
+        welcomeMessage = payload.welcomeMessage.trim();
+        await saveSettings();
+      }
+      json(res, 200, { ok: true, welcomeMessage });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/refresh-qr") {
+      json(res, 200, { ok: true, restarting: true });
+      setTimeout(async () => {
+        try {
+          await fs.rm("auth_info_baileys", { recursive: true, force: true });
+        } catch (error) {
+          logger.error(`Failed to remove auth folder: ${error.message}`);
+        }
+        process.exit(0);
+      }, 500);
+      return;
+    }
+
+    json(res, 404, { ok: false, error: "not found" });
+  });
+
+  server.listen(PORT, "0.0.0.0", () => {
+    logger.info(`Control page listening on port ${PORT}`);
+  });
+}
+
+function getMessageText(message) {
+  const content = message.message;
+  if (!content) return "";
+
+  return (
+    content.conversation ||
+    content.extendedTextMessage?.text ||
+    content.imageMessage?.caption ||
+    content.videoMessage?.caption ||
+    ""
+  );
 }
 
 function normalizeText(text) {
-  let t = text.trim().toLowerCase();
-  t = t.replace(/[ًٌٍَُِّْ]/g, '');
-  t = t.replace(/[إأآا]/g, 'ا');
-  t = t.replace(/[ى]/g, 'ي');
-  t = t.replace(/[ة]/g, 'ه');
-  return t;
+  return text
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/[٠۰]/g, "0")
+    .replace(/[١۱]/g, "1")
+    .replace(/[٢۲]/g, "2")
+    .replace(/[٣۳]/g, "3")
+    .replace(/[٤۴]/g, "4")
+    .replace(/[٥۵]/g, "5")
+    .replace(/[٦۶]/g, "6")
+    .replace(/[٧۷]/g, "7")
+    .replace(/[٨۸]/g, "8")
+    .replace(/[٩۹]/g, "9")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function directPriceMatch(text) {
-  const t = normalizeText(text);
-  // ─── طقم الأسنان (بيع مباشر) ───
-  if (t.includes('اسنان') || t.includes('طقم اسنان') || t.includes('طقم الأسنان') || t.includes('سن ماكينه'))
-    return 'طقم الأسنان موجود ومتوفر للبيع ومتاح في الورشة علطول يا فندم، تنورنا في أي وقت!';
-  // ─── تكلفة الصيانة والكشف ───
-  if (t.includes('التكلفه') || t.includes('التكلفة') || t.includes('تكلف') || t.includes('حسابها') || t.includes('كام كشف'))
-    return 'يا فندم التكلفة دي بتكون حسب ما المهندس ماهر يشوف المكنة ويعاين العطل بنفسه، أو أنا بجيب لك الأسعار والتكلفة من المهندس علطول أول ما يفحصها. تشرفنا في الورشة وتنورنا!';
-  // ─── الصيانة وقطع الغيار ───
-  if (t.includes('موتور') || t.includes('طرمبه') || t.includes('طرمبة') || t.includes('طرمبه زيت') || t.includes('طرمبة زيت') || t.includes('لقمه') || t.includes('لقمة') || t.includes('لوقم') || t.includes('تصليح') || t.includes('عطلانه') || t.includes('صيانه') || t.includes('صيانة') || t.includes('طريقه تصليح') || t.includes('طريقة تصليح'))
-    return 'أه قطع الغيار موجودة والصيانة متوفرة إن شاء الله، جيبها هنا الورشة للمهندس ماهر عشان يعملها لك وينظر فيها بنفسه.';
-  // ─── معدات الإيجار (الأسعار) ───
-  if (t.includes('راس في راس') || t.includes('راس براس') || t.includes('hdp')) return 'مكنة HDP راس في راس بـ 200 ريال في اليوم يا فندم.';
-  if (t.includes('2 بوصه') || t.includes('٢ بوصه') || t.includes('2 بوصة') || t.includes('٢ بوصة') || t.includes('مكنه سن') || t.includes('مكنه السن') || t.includes('ماكينه سن') || t.includes('سن 2')) return 'ماكينة سن 2 بوصة بـ 100 ريال في اليوم يا فندم. وماكينة سن 3 بوصة بـ 120 ريال في اليوم.';
-  if (t.includes('3 بوصه') || t.includes('٣ بوصه') || t.includes('3 بوصة') || t.includes('٣ بوصة') || t.includes('سن 3')) return 'ماكينة سن 3 بوصة بـ 120 ريال في اليوم يا فندم.';
-  if (t.includes('باركود') || t.includes('باركد')) return 'مكنة باركود HDP بـ 200 ريال في اليوم يا فندم.';
-  if (t.includes('خواشه') || t.includes('خواشة')) return 'خواشة مواسير بـ 50 ريال في اليوم يا فندم.';
-  if (t.includes('جروف') || t.includes('قروش') || t.includes('الگروف')) return 'مكنة جروف بـ 80 ريال في اليوم يا فندم.';
-  if (t.includes('ضغط') || t.includes('مواصير')) return 'مكنة ضغط مياه (كهرباء) بـ 50 ريال، وديزل بـ 70 ريال في اليوم يا فندم.';
-  if (t.includes('مولد') || t.includes('موّلد') || t.includes('3 كيلو')) return 'مولد كهرباء 3 كيلو بـ 100 ريال في اليوم يا فندم.';
-  if (t.includes('مقص')) return 'مقص 8 بوصة بـ 100 ريال في اليوم يا فندم.';
-  return null;
+function findProduct(text) {
+  const normalized = normalizeText(text);
+  return products.find((product) =>
+    product.names.some((name) => normalized.includes(normalizeText(name)))
+  );
 }
 
-function getFamilyGreeting(familyMember) {
-  if (!familyMember) return null;
-  if (familyMember.style === 'romantic') {
-    const msgs = [
-      `${familyMember.greeting} عاملة إيه يا أجمل حاجة في الدنيا؟`,
-      `${familyMember.greeting} إزيك يا حياتي، مشتاقلك بجد!`,
-      `${familyMember.greeting} وحشتيني أوي، عامل إيه؟`
-    ];
-    return msgs[Math.floor(Math.random() * msgs.length)];
-  }
-  if (familyMember.style === 'warm') {
-    const msgs = [
-      `${familyMember.greeting} أخبارك إيه؟ وصحتك عاملة إيه؟ ربنا يخليك ليا.`,
-      `${familyMember.greeting} إزيك يا حبيبتي، وحشتيني. أيوة عاملة إيه؟`
-    ];
-    return msgs[Math.floor(Math.random() * msgs.length)];
-  }
-  if (familyMember.style === 'manly') {
-    const msgs = [
-      `${familyMember.greeting} أخبارك إيه يا جدع؟ عامل إيه في الدنيا؟`,
-      `${familyMember.greeting} إزيك يارجالة، كلو تمام؟`
-    ];
-    return msgs[Math.floor(Math.random() * msgs.length)];
-  }
-  return familyMember.greeting;
+function listProducts() {
+  return products.map((product) => `- ${product.label}: ${product.price}`).join("\n");
 }
 
-async function createOrderFlow(client, from) {
-  await client.sendMessage(from, `من ${WORKSHOP_NAME}\nتمام يا معلم، عايز تسجل طلب جديد.\nأكتب اسمك الأول إيه؟`);
-  return { step: 'awaiting_name', data: {} };
+function getFallbackResponse(text, clientName) {
+  const product = findProduct(text);
+  const normalized = normalizeText(text);
+
+  if (product) {
+    return `أهلا يا أستاذ ${clientName}. ${product.label} إيجارها ${product.price}. تحب تحجزها كام يوم؟`;
+  }
+
+  if (normalized.includes("سن")) {
+    return `أهلا يا أستاذ ${clientName}. عندنا ماكينة سن 2 بوصة بـ 100 ريال/اليوم، وماكينة سن 3 بوصة بـ 120 ريال/اليوم. محتاج أنهي واحدة؟`;
+  }
+
+  if (normalized.includes("ضغط")) {
+    return `أهلا يا أستاذ ${clientName}. مكنة ضغط مياه كهرباء بـ 50 ريال/اليوم، ومكنة ضغط مياه ديزل بـ 70 ريال/اليوم. تحب أنهي نوع؟`;
+  }
+
+  if (/(كل الاسعار|قائمه الاسعار|القائمه|الاسعار كلها|كل الموجود|ايه الموجود|عندك ايه)/i.test(normalized)) {
+    return `أهلا يا أستاذ ${clientName}. دي قائمة الإيجار المتاحة:\n${listProducts()}\n\nقولّي محتاج أنهي معدة ومدة الإيجار كام يوم.`;
+  }
+
+  if (/(السعر|اسعار|بكام|كام|الموجود|متاح|ايجار|عاوز|عايز|ابغى|ابغي|احتاج|محتاج)/i.test(normalized)) {
+    return `أهلا يا أستاذ ${clientName}. اكتب اسم المعدة اللي محتاج سعرها، مثلا: ماكينة سن 2، جروف، باركود، ضغط كهرباء، مولد، أو مقص.`;
+  }
+
+  if (/(تصليح|صيانه|اصلح|خربان|عطلان|بايظ)/i.test(normalized)) {
+    return `أهلا يا أستاذ ${clientName}. موجود صيانة إن شاء الله، ابعتلي نوع المعدة والمشكلة أو هاتها الورشة ونشوفها.`;
+  }
+
+  if (/(السلام|سلام|اهلا|ازيك|مرحبا|صباح|مساء)/i.test(normalized)) {
+    return welcomeMessage.replaceAll("{name}", clientName);
+  }
+
+  return `أهلا يا أستاذ ${clientName}. اكتب اسم المعدة اللي عايزها وأنا أقولك سعرها. مثلا: السن بكام، الباركود بكام، أو الجروف بكام.`;
 }
 
-async function handleOrderStep(client, message, session) {
-  const msgText = message.body.trim();
-  if (session.step === 'awaiting_name') {
-    session.data.name = msgText;
-    session.step = 'awaiting_item';
-    await client.sendMessage(message.from, `طيب يا ${msgText}، عايز تطلب إيه بالظبط؟`);
-    return session;
+async function getAIResponse(prompt, text, clientName) {
+  if (!USE_OLLAMA) {
+    return getFallbackResponse(text, clientName);
   }
-  if (session.step === 'awaiting_item') {
-    session.data.item = msgText;
-    session.step = 'awaiting_details';
-    await client.sendMessage(message.from, 'فيه تفاصيل زيادة عايز تضيفها؟');
-    return session;
+
+  try {
+    const response = await axios.post(
+      `${OLLAMA_API}/api/generate`,
+      {
+        model: OLLAMA_MODEL,
+        prompt,
+        stream: false
+      },
+      { timeout: 60000 }
+    );
+
+    return (response.data.response || "").trim() || getFallbackResponse(text, clientName);
+  } catch (error) {
+    logger.error(`Ollama unavailable: ${error.message}`);
+    return getFallbackResponse(text, clientName);
   }
-  if (session.step === 'awaiting_details') {
-    session.data.details = msgText === 'لا' || msgText === 'لأ' ? '' : msgText;
-    const phone = message.from.replace('@c.us', '').replace('@g.us', '');
-    try {
-      addOrder(session.data.name, phone, session.data.item, session.data.details);
-    } catch {}
-    await client.sendMessage(message.from, `تم تسجيل طلبك يا ${session.data.name} ✅\nالطلب: ${session.data.item}\nمن ${WORKSHOP_NAME}\nهنتواصل معاك إن شاء الله قريب.`);
-    return null;
-  }
-  return null;
 }
 
-const userStates = {};
-const conversations = {};
-const MAX_CONV_HISTORY = 6;
-let botClient = null;
-let botStateCallback = null;
-let currentQRDataURL = '';
-let botMode = 'auto';
-let io = null;
+function buildPrompt(text, clientName) {
+  return `أنت ماهر البدري، صاحب ورشة صيانة وإيجار معدات الحريق والسباكة في مكة.
+اتكلم مع العميل بالعامية المصرية فقط، وخليك مختصر وواضح ومهذب.
+لو العميل بيسأل عن سعر أو توفر منتج، جاوبه من القائمة. لو محتاج تفاصيل ناقصة، اسأله سؤال واحد واضح.
 
-function setStateCallback(cb) {
-  botStateCallback = cb;
+قائمة المنتجات للإيجار:
+${listProducts()}
+
+العميل ${clientName}: ${text}
+ماهر البدري:`;
 }
 
-function updateState(partial) {
-  if (botStateCallback) botStateCallback(partial);
+async function updateQr(qr) {
+  latestQr = qr;
+  latestQrDataUrl = await QRCode.toDataURL(qr, {
+    margin: 2,
+    scale: 7,
+    errorCorrectionLevel: "M"
+  });
+  if (ioInstance) ioInstance.emit("qr", latestQrDataUrl);
+  if (_stateCallback) _stateCallback({ status: "qr", mode: autoReplyEnabled ? "auto" : "manual" });
 }
 
-function startBot(ioInstance) {
-  io = ioInstance;
-  const tempDir = path.join(process.env.DATA_DIR || __dirname, 'temp');
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+export async function startBot(io) {
+  ioInstance = io;
+  const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
+  const { version } = await fetchLatestBaileysVersion();
 
-  const chromePaths = [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-  ];
-  let chromePath = '';
-  for (const p of chromePaths) {
-    if (fs.existsSync(p)) { chromePath = p; break; }
-  }
-  const puppeteerOpts = {
-    headless: 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-zygote',
-      '--disable-software-rasterizer',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-extensions',
-      '--disable-background-networking',
-      '--disable-sync',
-      '--metrics-recording-only',
-      '--mute-audio',
-      '--disable-blink-features=AutomationControlled',
-      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    ],
-    timeout: 180000
-  };
-  if (chromePath) puppeteerOpts.executablePath = chromePath;
-
-  const authPath = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, '.wwebjs_auth') : undefined;
-  const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: authPath }),
-    puppeteer: puppeteerOpts
+  const sock = makeWASocket({
+    version,
+    auth: state,
+    logger: pino({ level: "silent" })
   });
 
-  botClient = client;
-  botMode = 'auto';
-  const orderSessions = {};
+  sock.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect, qr } = update;
 
-
-  client.on('qr', async (qr) => {
-    qrcode.generate(qr, { small: true });
-    console.log('📱 امسح رمز QR ده باستخدام WhatsApp');
-    try {
-      currentQRDataURL = await QRCode.toDataURL(qr, { width: 400, margin: 2 });
-      const base64Data = currentQRDataURL.replace(/^data:image\/png;base64,/, '');
-      fs.writeFileSync(path.join(__dirname, 'qr_latest.png'), base64Data, 'base64');
-      console.log('💾 QR محفوظ في qr_latest.png');
-    } catch (e) { console.error('فشل حفظ QR:', e.message); }
-    updateState({ status: 'qr', qrCode: qr, qrDataURL: currentQRDataURL });
-    if (io) io.emit('qr', currentQRDataURL);
-  });
-
-  client.on('ready', () => {
-    console.log('✅ البوت شغال وجاهز!');
-    updateState({ status: 'connected' });
-    if (io) io.emit('status', 'connected');
-  });
-
-  client.on('disconnected', (reason) => {
-    console.log('❌ تم قطع الاتصال:', reason);
-    updateState({ status: 'disconnected' });
-  });
-
-  client.on('auth_failure', (msg) => {
-    console.error('❌ فشل المصادقة:', msg);
-    updateState({ status: 'initializing' });
-  });
-
-  // ════════════════════════════════════════════
-  // دالة مساعدة: إرسال رد نصي + صوتي معاً
-  // ════════════════════════════════════════════
-  async function sendTextAndAudio(to, text) {
-    try {
-      await client.sendMessage(to, text);
-    } catch (e) {
-      console.error('❌ فشل إرسال النص:', e.message);
-    }
-    try {
-      const tts = new gTTS(text, 'ar');
-      const audioFile = path.join(tempDir, `audio_${Date.now()}.mp3`);
-      await new Promise((resolve, reject) => {
-        tts.save(audioFile, (err) => { if (err) reject(err); else resolve(); });
-      });
-      if (fs.existsSync(audioFile)) {
-        const audioMedia = MessageMedia.fromFilePath(audioFile);
-        await client.sendMessage(to, audioMedia, { sendAudio: true });
-        try { fs.unlinkSync(audioFile); } catch {}
-      }
-    } catch (e) {
-      console.error('❌ gTTS فشل:', e.message);
-    }
-  }
-
-  client.on('message', async (message) => {
-    try {
-    if (message.from.endsWith('@g.us')) return;
-    const msgText = message.body.trim();
-    const senderNumber = message.from.replace('@c.us', '').replace('@g.us', '');
-    if (isBlocked(senderNumber)) return;
-
-    // ════════════════════════════════════════════
-    // 0️⃣ الوسائط المتعددة: صوت، صورة، فيديو
-    // ════════════════════════════════════════════
-    if (message.hasMedia) {
-      try {
-        const media = await message.downloadMedia();
-        if (media && media.mimetype) {
-          const mime = media.mimetype;
-
-          // 🎤 رسالة صوتية: تفريغ ← رد نصي + صوتي
-          if (mime.startsWith('audio/')) {
-            await client.sendMessage(message.from, '⏳ جاري تفريغ الصوت... ثواني');
-            const audioBuffer = Buffer.from(media.data, 'base64');
-            const transcription = await getWhisperTranscription(audioBuffer);
-            if (transcription && transcription.length > 2) {
-              console.log('🎤 تفريغ صوتي:', transcription);
-              let reply = directPriceMatch(transcription);
-              if (reply === 'GROUP_ASK') {
-                reply = 'هل أنت سباك؟';
-                userStates[message.from] = 'waiting_for_plumber_check';
-              }
-              const nameHint = message._data?.notifyName || senderNumber;
-              if (!reply) reply = await generateBotReply(transcription, nameHint, senderNumber);
-              if (reply) {
-                await sendTextAndAudio(message.from, reply);
-              }
-            } else {
-              await sendTextAndAudio(message.from, 'عذراً، لم أتمكن من سماع التسجيل بوضوح، يرجى إعادة الإرسال بجودة أفضل.');
-            }
-            return;
-          }
-
-          // 📸 صورة
-          if (mime.startsWith('image/')) {
-            await client.sendMessage(message.from, '📸 استلمت الصورة. للأسف ما أقدر أحلل الصور دلوقتي، ممكن تكتبلي تفاصيل طلبك بالكتابة?');
-            return;
-          }
-
-          // 🎬 فيديو
-          if (mime.startsWith('video/')) {
-            await client.sendMessage(message.from, '🎬 استلمت الفيديو. ممكن توضحلي بالكتابة إيه المطلوب?');
-            return;
-          }
-        }
-      } catch (mediaErr) {
-        console.error('❌ خطأ في معالجة الميديا:', mediaErr.message);
-        try { await client.sendMessage(message.from, '❌ حصل خطأ في معالجة المرفق، جرب تاني'); } catch {}
-        return;
-      }
+    if (qr) {
+      await updateQr(qr);
+      logger.info("QR جاهز على صفحة التحكم: https://maher-workshop-bot.onrender.com");
+      qrcodeTerminal.generate(qr, { small: true });
     }
 
-    // تأكد أن النص موجود (بعد معالجة الميديا)
-    if (!msgText) return;
+    if (connection === "open") {
+      isWhatsAppConnected = true;
+      latestQr = "";
+      latestQrDataUrl = "";
+      logger.info("البوت متصل بواتساب!");
+      if (ioInstance) ioInstance.emit("qr", null);
+      if (_stateCallback) _stateCallback({ status: "connected", mode: autoReplyEnabled ? "auto" : "manual" });
+    } else if (connection === "close") {
+      isWhatsAppConnected = false;
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      if (ioInstance) ioInstance.emit("qr", null);
+      if (_stateCallback) _stateCallback({ status: "disconnected", mode: autoReplyEnabled ? "auto" : "manual" });
 
-    // ════════════════════════════════════════════
-    // 1️⃣ أول حاجة: فحص الأسعار — يسبق أي شيء
-    // ════════════════════════════════════════════
-    const priceReply = directPriceMatch(msgText);
-    if (priceReply === 'GROUP_ASK') {
-      await client.sendMessage(message.from, 'هل أنت سباك؟');
-      userStates[message.from] = 'waiting_for_plumber_check';
-      return;
-    }
-    if (priceReply) { await client.sendMessage(message.from, priceReply); return; }
-
-    console.log('📩 رسالة واردة:', msgText.substring(0, 100));
-
-    // ════════════════════════════════════════════
-    // 3️⃣ التحقق من حالة المستخدم (جروب السباكين)
-    // ════════════════════════════════════════════
-    if (userStates[message.from] === 'waiting_for_plumber_check') {
-      const answer = normalizeText(msgText);
-      if (answer.includes('نعم') || answer.includes('ايوه') || answer.includes('أيوه') || answer.includes('أه') || answer.includes('اه') || answer.includes('تمام') || answer.includes('طيب') || answer.includes('يب') || answer.includes('انا سباك') || answer.includes('تاجر') || answer.includes('فني')) {
-        await client.sendMessage(message.from, `تنورنا يا هندسة في جروب الصيانة! ده رابط الجروب المباشر:\n${whatsappGroupLink}`);
-        delete userStates[message.from];
-        return;
+      if (shouldReconnect) {
+        logger.info("إعادة الاتصال...");
+        setTimeout(() => {
+          startBot(ioInstance || io).catch((error) => logger.error(`فشل إعادة الاتصال: ${error.message}`));
+        }, 3000);
       } else {
-        await client.sendMessage(message.from, 'عفواً، الجروب مخصص لأهل المهنة والسباكين فقط.');
-        delete userStates[message.from];
-        return;
+        logger.warn("تم تسجيل الخروج. افتح صفحة التحكم لتجديد QR.");
       }
-    }
-
-    const contact = await message.getContact();
-    const pushName = message._data?.notifyName || contact.pushname || message.author || '';
-    const shortName = pushName.split(' ').slice(0, 3).join(' ');
-
-    let familyMember = null;
-    for (const [fName, fData] of Object.entries(FAMILY)) {
-      if (shortName.toLowerCase().includes(fName.toLowerCase())) {
-        familyMember = fData;
-        familyMember.name = fName;
-        break;
-      }
-    }
-    if (!familyMember && senderNumber.includes(ADMIN_NUMBER)) {
-      familyMember = { mode: 'admin', style: 'admin', name: 'ماهر' };
-    }
-
-    // Check for order session continuation
-    if (orderSessions[message.from]) {
-      const session = await handleOrderStep(client, message, orderSessions[message.from]);
-      if (session) {
-        orderSessions[message.from] = session;
-      } else {
-        delete orderSessions[message.from];
-      }
-      return;
-    }
-
-    // Admin commands
-    if (senderNumber.includes(ADMIN_NUMBER)) {
-      if (msgText === 'يدوي' || msgText === 'يدوى') {
-        setBotMode('manual');
-        await client.sendMessage(message.from, `✅ تم التحويل للوضع اليدوي يا أستاذ ماهر.\nالبوت مش هياخد أي ردود دلوقتي.`);
-        return;
-      }
-      if (msgText === 'تلقائي' || msgText === 'تلقائى') {
-        setBotMode('auto');
-        await client.sendMessage(message.from, `✅ تم التحويل للوضع التلقائي يا أستاذ ماهر.\nالبوت رجع يرد تاني.`);
-        return;
-      }
-      if (msgText === 'قائمة' || msgText === 'اعدادات' || msgText === 'إعدادات') {
-        const menu = `📋 *${WORKSHOP_NAME}* - قائمة التحكم\n\n1️⃣ يدوي - إيقاف الرد التلقائي\n2️⃣ تلقائي - تشغيل الرد التلقائي\n3️⃣ الغاء رقم - حظر رقم\n4️⃣ تفعيل رقم - إلغاء حظر رقم\n\nالحالة: ${botMode === 'auto' ? 'تلقائي 🟢' : 'يدوي 🔴'}`;
-        await client.sendMessage(message.from, menu);
-        return;
-      }
-      if (msgText.startsWith('الغاء')) {
-        const num = msgText.replace('الغاء', '').trim();
-        if (num) {
-          try { blockNumber(num); } catch {}
-          await client.sendMessage(message.from, `✅ تم حظر الرقم ${num}`);
-          if (io) io.emit('blocked_update');
-        }
-        return;
-      }
-      if (msgText.startsWith('تفعيل')) {
-        const num = msgText.replace('تفعيل', '').trim();
-        if (num) {
-          try { unblockNumber(num); } catch {}
-          await client.sendMessage(message.from, `✅ تم إلغاء حظر الرقم ${num}`);
-          if (io) io.emit('blocked_update');
-        }
-        return;
-      }
-    }
-
-    if (botMode === 'manual') return;
-
-    // Handle family mode
-    if (familyMember) {
-      if (familyMember.style === 'romantic') {
-        const greeting = getFamilyGreeting(familyMember);
-        await client.sendMessage(message.from, greeting);
-        await new Promise(r => setTimeout(r, 500));
-        if (msgText.length > 3) {
-          const ai = await getAIResponse(msgText, shortName, null, false);
-          if (ai) {
-            await client.sendMessage(message.from, ai);
-          }
-        }
-        return;
-      }
-      if (familyMember.style === 'warm') {
-        const greeting = getFamilyGreeting(familyMember);
-        await client.sendMessage(message.from, greeting);
-        await new Promise(r => setTimeout(r, 500));
-        if (msgText.length > 3) {
-          await client.sendMessage(message.from, `ربنا يخليكي يا ${familyMember.name}، كل حاجة تمام؟`);
-        }
-        return;
-      }
-      if (familyMember.style === 'manly') {
-        const greeting = getFamilyGreeting(familyMember);
-        await client.sendMessage(message.from, greeting);
-        await new Promise(r => setTimeout(r, 500));
-        if (msgText.length > 3) {
-          await client.sendMessage(message.from, `فكرة كويسة يا ${familyMember.name}، خلينا نشوف إيه المطلوب.`);
-        }
-        return;
-      }
-      return;
-    }
-
-    // Normal message handling
-    const reply = await generateBotReply(msgText, shortName, senderNumber);
-    if (reply) {
-      if (reply === 'ORDER_REQUEST') {
-        const session = await createOrderFlow(client, message.from);
-        orderSessions[message.from] = session;
-        return;
-      }
-      if (reply === 'GROUP_ASK') {
-        await client.sendMessage(message.from, 'هل أنت سباك؟');
-        userStates[message.from] = 'waiting_for_plumber_check';
-        return;
-      }
-      await client.sendMessage(message.from, reply);
-      addConversation(senderNumber, 'user', msgText);
-      addConversation(senderNumber, 'assistant', reply);
-      console.log('✅ رد البوت:', reply.substring(0, 100));
-    }
-    } catch (e) {
-      console.error('❌ خطأ في معالجة الرسالة:', e.message);
     }
   });
 
-  function addConversation(phone, role, content) {
-    if (!conversations[phone]) conversations[phone] = { history: [], welcomed: false };
-    conversations[phone].history.push({ role, content });
-    if (conversations[phone].history.length > MAX_CONV_HISTORY) {
-      conversations[phone].history = conversations[phone].history.slice(-MAX_CONV_HISTORY);
-    }
-  }
+  sock.ev.on("creds.update", saveCreds);
 
-  async function generateBotReply(text, clientName, phone) {
-    text = text.trim();
-    if (!text || text.length < 2) return null;
+  sock.ev.on("messages.upsert", async (m) => {
+    const message = m.messages[0];
 
-    const lower = normalizeText(text);
-    const orderWords = ['عايز أأجر', 'عايز أطلب', 'عايز اشتري'];
-    for (const w of orderWords) {
-      if (lower.includes(normalizeText(w))) return 'ORDER_REQUEST';
-    }
+    if (!message?.message || message.key.fromMe) return;
 
-    if (!conversations[phone]) conversations[phone] = { history: [], welcomed: false };
-    const conv = conversations[phone];
-    const isFirst = !conv.welcomed;
+    const sender = message.key.remoteJid;
+    const text = getMessageText(message);
 
-    let reply = await getAIResponse(text, clientName, conv.history, isFirst);
-    if (!reply) {
-      reply = `أهلاً يا أستاذ ${clientName}، أنا ماهر البدري صاحب الورشة، أي خدمة تحتاجها في معدات الحريق والسباكة أنا تحت أمرك.`;
+    if (!sender || !text.trim()) return;
+
+    if (!autoReplyEnabled) {
+      logger.info(`Manual mode: ignored message from ${sender}`);
+      return;
     }
 
-    if (conv.welcomed === false) conv.welcomed = true;
-    return reply;
-  }
+    const senderName = message.pushName || "الزميل";
 
-  client.initialize().catch((err) => {
-    console.error('❌ فشل تشغيل البوت:', err.message);
-    updateState({ status: 'disconnected' });
+    try {
+      const prompt = buildPrompt(text, senderName);
+      const aiResponse = await getAIResponse(prompt, text, senderName);
+
+      await sock.sendMessage(sender, { text: aiResponse });
+      logger.info(`تم الرد على العميل: ${aiResponse.substring(0, 50)}...`);
+    } catch (error) {
+      logger.error(`خطأ: ${error.message}`);
+    }
   });
-  updateState({ status: 'initializing' });
-  return client;
 }
 
-function getBotMode() {
-  return botMode;
+// When run directly as `node bot.js`, start standalone server
+const isMainModule = process.argv[1]?.replace(/\\/g, "/").endsWith("/bot.js");
+if (isMainModule) {
+  loadSettings()
+    .then(() => {
+      startWebServer();
+      return startBot();
+    })
+    .catch((err) => {
+      logger.error(`خطأ في بدء البوت: ${err.message}`);
+      process.exit(1);
+    });
 }
-
-function setBotMode(mode) {
-  if (mode === 'auto' || mode === 'manual') {
-    botMode = mode;
-    if (io) io.emit('mode', mode);
-    if (botStateCallback) botStateCallback({ mode: mode });
-    console.log(`🔁 تم تغيير وضع البوت إلى: ${mode}`);
-    return true;
-  }
-  return false;
-}
-
-function getQRDataURL() {
-  return currentQRDataURL;
-}
-
-module.exports = { startBot, setStateCallback, getBotMode, setBotMode, getQRDataURL, botClient };

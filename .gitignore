@@ -1,10 +1,14 @@
 node_modules/
 .wwebjs_auth/
 .wwebjs_cache/
+.wwebjs_auth_session/
+auth_info_baileys/
 temp/
 workshop.db
 bot_err.log
 bot_out.log
-start.bat
 *.log
 .git/
+.env
+bot-settings.json
+session-data-*.js

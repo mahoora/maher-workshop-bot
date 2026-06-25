@@ -5,7 +5,6 @@ const path = require('path');
 const fs = require('fs');
 const AdmZip = require('adm-zip');
 const { initDB, getOrders, addOrder, getBlockedNumbers } = require('./database');
-const { startBot, setStateCallback, setBotMode, getQRDataURL } = require('./bot');
 
 const app = express();
 const server = http.createServer(app);
@@ -19,30 +18,87 @@ app.use(express.static(path.join(__dirname, 'public')));
 let botMode = 'auto';
 let botStatus = 'stopped';
 
-setStateCallback((state) => {
-  if (state.mode) botMode = state.mode;
-  if (state.status) botStatus = state.status;
-  io.emit('status', botStatus);
-  io.emit('mode', botMode);
-});
-
-app.get('/api/status', (req, res) => {
-  res.json({ mode: botMode, status: botStatus, qr: botStatus === 'qr' ? getQRDataURL() : null });
-});
-
-app.get('/api/qr', (req, res) => {
-  const qr = getQRDataURL();
-  if (qr) {
-    res.json({ qr: true, dataURL: qr });
-  } else {
-    res.json({ qr: false });
+async function main() {
+  try {
+    await initDB();
+    console.log('✅ قاعدة البيانات جاهزة');
+  } catch (e) {
+    console.error('❌ قاعدة البيانات:', e.message);
   }
-});
+
+  try {
+    const bot = await import('./bot.js');
+    const { startBot, setStateCallback, setBotMode, getQRDataURL } = bot;
+
+    setStateCallback((state) => {
+      if (state.mode) botMode = state.mode;
+      if (state.status) botStatus = state.status;
+      io.emit('status', botStatus);
+      io.emit('mode', botMode);
+    });
+
+    app.get('/api/status', (req, res) => {
+      res.json({ mode: botMode, status: botStatus, qr: botStatus === 'qr' ? getQRDataURL() : null });
+    });
+
+    app.get('/api/qr', (req, res) => {
+      const qr = getQRDataURL();
+      if (qr) {
+        res.json({ qr: true, dataURL: qr });
+      } else {
+        res.json({ qr: false });
+      }
+    });
+
+    app.post('/api/mode', (req, res) => {
+      const mode = req.body.mode;
+      if (!mode) return res.status(400).json({ error: 'mode required' });
+      const ok = setBotMode(mode);
+      if (ok) {
+        botMode = mode;
+        io.emit('mode', mode);
+        res.json({ success: true, mode });
+      } else {
+        res.status(400).json({ error: 'mode must be auto or manual' });
+      }
+    });
+
+    io.on('connection', (socket) => {
+      console.log('🟢 متصفح متصل بلوحة التحكم');
+      socket.emit('status', botStatus);
+      socket.emit('mode', botMode);
+      const qr = getQRDataURL();
+      if (qr) socket.emit('qr', qr);
+      socket.on('set_mode', (mode) => {
+        const ok = setBotMode(mode);
+        if (ok) {
+          botMode = mode;
+          console.log('🔄 وضع البوت:', mode === 'auto' ? 'تلقائي' : 'يدوي');
+        }
+        socket.emit('mode_changed', { success: ok, mode: mode });
+      });
+      socket.on('get_orders', () => { try { socket.emit('orders_list', getOrders()); } catch {} });
+      socket.on('get_blocked', () => { try { socket.emit('blocked_list', getBlockedNumbers()); } catch {} });
+    });
+
+    server.listen(PORT, () => {
+      console.log('🌐 الخادم شغال على http://localhost:' + PORT);
+      console.log('🚀 تشغيل بوت واتساب...');
+      try {
+        startBot(io);
+        console.log('✅ البوت شغال وجاهز!');
+      } catch (e) {
+        console.error('❌ البوت:', e.message);
+      }
+    });
+  } catch (e) {
+    console.error('❌ فشل تحميل البوت:', e.message);
+    process.exit(1);
+  }
+}
 
 app.get('/api/orders', (req, res) => {
-  try {
-    res.json(getOrders());
-  } catch { res.status(500).json({ error: 'خطأ' }); }
+  try { res.json(getOrders()); } catch { res.status(500).json({ error: 'خطأ' }); }
 });
 
 app.post('/api/order', (req, res) => {
@@ -63,19 +119,6 @@ app.post('/api/order-web', (req, res) => {
     io.emit('new_order');
     res.redirect('/?success=1');
   } catch { res.redirect('/?error=1'); }
-});
-
-app.post('/api/mode', (req, res) => {
-  const mode = req.body.mode;
-  if (!mode) return res.status(400).json({ error: 'mode required' });
-  const ok = setBotMode(mode);
-  if (ok) {
-    botMode = mode;
-    io.emit('mode', mode);
-    res.json({ success: true, mode });
-  } else {
-    res.status(400).json({ error: 'mode must be auto or manual' });
-  }
 });
 
 app.post('/api/upload-session', (req, res) => {
@@ -119,43 +162,6 @@ app.get('/api/products', (req, res) => {
     { name: 'مقص 8 بوصة', price: '100 ريال/اليوم' }
   ]);
 });
-
-io.on('connection', (socket) => {
-  console.log('🟢 متصفح متصل بلوحة التحكم');
-  socket.emit('status', botStatus);
-  socket.emit('mode', botMode);
-  const qr = getQRDataURL();
-  if (qr) socket.emit('qr', qr);
-  socket.on('set_mode', (mode) => {
-    const ok = setBotMode(mode);
-    if (ok) {
-      botMode = mode;
-      console.log('🔄 وضع البوت:', mode === 'auto' ? 'تلقائي' : 'يدوي');
-    }
-    socket.emit('mode_changed', { success: ok, mode: mode });
-  });
-  socket.on('get_orders', () => { try { socket.emit('orders_list', getOrders()); } catch {} });
-  socket.on('get_blocked', () => { try { socket.emit('blocked_list', getBlockedNumbers()); } catch {} });
-});
-
-async function main() {
-  try {
-    await initDB();
-    console.log('✅ قاعدة البيانات جاهزة');
-  } catch (e) {
-    console.error('❌ قاعدة البيانات:', e.message);
-  }
-
-  server.listen(PORT, () => {
-    console.log('🌐 الخادم شغال على http://localhost:' + PORT);
-    console.log('🚀 تشغيل بوت واتساب...');
-    try {
-      startBot(io);
-    } catch (e) {
-      console.error('❌ البوت:', e.message);
-    }
-  });
-}
 
 process.on('uncaughtException', (e) => {
   console.error('❌ خطأ غير متوقع:', e.message);

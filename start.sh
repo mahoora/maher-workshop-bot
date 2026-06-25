@@ -1,6 +1,3 @@
 #!/bin/bash
-echo "فك ضغط الجلسة..."
-node decode-session.js
-
-echo "تشغيل السيرفر..."
+echo "تشغيل سيرفر البوت..."
 node server.js

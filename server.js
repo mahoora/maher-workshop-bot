@@ -27,7 +27,7 @@ async function main() {
   }
 
   try {
-    const bot = await import('./bot.js');
+    const bot = await import('./bot.mjs');
     const { startBot, setStateCallback, setBotMode, getQRDataURL } = bot;
 
     setStateCallback((state) => {

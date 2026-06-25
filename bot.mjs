@@ -534,8 +534,8 @@ export async function startBot(io) {
   });
 }
 
-// When run directly as `node bot.js`, start standalone server
-const isMainModule = process.argv[1]?.replace(/\\/g, "/").endsWith("/bot.js");
+// When run directly as `node bot.mjs` or `node bot.js`, start standalone server
+const isMainModule = process.argv[1]?.replace(/\\/g, "/").endsWith("/bot.mjs") || process.argv[1]?.replace(/\\/g, "/").endsWith("/bot.js");
 if (isMainModule) {
   loadSettings()
     .then(() => {

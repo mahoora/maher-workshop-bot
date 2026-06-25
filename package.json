@@ -5,13 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "bot": "node bot.js",
+    "bot": "node bot.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
     "adm-zip": "^0.5.16",
